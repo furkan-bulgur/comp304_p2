@@ -55,9 +55,9 @@ int main(int argc, char *argv[]){
 
   pthread_create(&tid, NULL, myThread, (void *)&tid);
 
+  pthread_exit(NULL);
 
 
-
-
+  return 0;
 
 }
