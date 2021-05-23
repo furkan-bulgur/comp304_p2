@@ -37,3 +37,27 @@ int pthread_sleep(double seconds){
     //Upon successful completion, a value of zero shall be returned
     return res;
 }
+
+int commentator_thread_number = 1;
+int question_number = 5;
+float requesting_answer_probability = 0.75;
+float max_talking_time = 3;
+float breaking_event_probability = 0.05;
+
+
+void *myThread(void *vargp){
+  int *myid = (int *)vargp;
+  printf("My id: %d\n",*myid);
+}
+
+int main(int argc, char *argv[]){
+  pthread_t tid;
+
+  pthread_create(&tid, NULL, myThread, (void *)&tid);
+
+
+
+
+
+
+}
