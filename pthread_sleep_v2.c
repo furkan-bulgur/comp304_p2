@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <semaphore.h>
 #include <time.h>
 
 /**
@@ -44,18 +45,42 @@ float requesting_answer_probability = 0.75;
 float max_talking_time = 3;
 float breaking_event_probability = 0.05;
 
+int victim = 3;
 
-void *myThread(void *vargp){
-  int *myid = (int *)vargp;
-  printf("My id: %d\n",*myid);
+sem_t mutex;
+
+void *comentator_thread(void *vargp){
+  sem_wait(&mutex);
+  printf("Entered Commentator\n");
+
+  victim++;
+
+  printf("Exiting Commentator %d\n",victim);
+  sem_post(&mutex);
+}
+
+void *moderator_thread(void *vargp){
+  sem_wait(&mutex);
+  printf("Entered Moderator\n");
+
+  victim--;
+
+  printf("Exiting Moderator %d\n",victim);
+  sem_post(&mutex);
 }
 
 int main(int argc, char *argv[]){
-  pthread_t tid;
 
-  pthread_create(&tid, NULL, myThread, (void *)&tid);
+  sem_init(&mutex,0,1);
+  pthread_t t1,t2;
 
-  pthread_exit(NULL);
+  pthread_create(&t1, NULL, moderator_thread, NULL);
+  pthread_create(&t2, NULL, comentator_thread, NULL);
+
+  pthread_join(t1,NULL);
+  pthread_join(t2,NULL);
+  sem_destroy(&mutex);
+
 
 
   return 0;
