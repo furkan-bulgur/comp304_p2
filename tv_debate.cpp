@@ -22,8 +22,9 @@ struct Request {
 queue<Request> request_queue;
 
 //command line arguments -p, -n, -q, t
-float p;
-int num_commentators=5;
+float prob_to_answer;
+float prob_to_breaking_news;
+int num_commentators;
 int num_questions;
 time_t max_speak_time;
 int req_id = 0;
@@ -88,7 +89,7 @@ void *request(void *com_num) {
       sem_wait(&question_asked);
       pthread_mutex_lock(&access_a_queue_mutex);
       //if it wants to answer, posts a request to the queue
-      if((rand()/(float)RAND_MAX) < p) {
+      if((rand()/(float)RAND_MAX) < prob_to_answer) {
         post_new_request_to_queue(commentator_num);
       }
       printf("Exiting Commentator\n");
@@ -121,26 +122,66 @@ void *moderate(void *vargp) {
   pthread_exit(0);
 }
 
+bool initialize_values(int argc, char *argv[]){
+  printf("argc : %d \n",argc);
+  num_commentators = 4;
+  prob_to_answer = 0.75;
+  num_questions = 5;
+  max_speak_time = 3;
+  prob_to_breaking_news = 0.05;
+  if(argc%2 == 1){
+    for(int i=1; i < argc; i+=2){
+      if(argv[i][0] == '-'){
+        if(strcmp(argv[i],"-n") == 0){
+          num_commentators = atoi(argv[i+1]);
+        }else if(strcmp(argv[i],"-p") == 0){
+          prob_to_answer = strtof(argv[i+1], NULL);
+        }else if(strcmp(argv[i],"-q") == 0){
+          num_questions = atoi(argv[i+1]);
+        }else if(strcmp(argv[i],"-t") == 0){
+          max_speak_time = strtol(argv[i+1],NULL,0);
+        }else if(strcmp(argv[i],"-b") == 0){
+          prob_to_breaking_news = strtof(argv[i+1], NULL);
+        }else{
+          return false;
+        }
+      }else{
+        return false;
+      }
+    }
+  }else{
+    return false;
+  }
+  return true;
+}
+
 
 int main(int argc, char *argv[]) {
-      // initialize mutex, attr and cond_var.
-      pthread_mutex_init(&access_a_queue_mutex, NULL);
-      sem_init(&question_asked,0,1);
-      //pthread_attr_init(&thread_attribute);
+  if(!initialize_values(argc,argv)){
+    printf("Argument Error. Exiting.\n");
+  }
 
-     pthread_create(&moderator, &thread_attribute, moderate, NULL);
-     for(long i=0; i<num_commentators; i++)
-      pthread_create(&commentators[i], &thread_attribute, request, (void *)i);
-
-     // join created threads.
-     for(long i=0; i<num_commentators; i++)
-      pthread_join(commentators[i], NULL);
-     pthread_join(moderator, NULL);
-
-     // destroy attr and mutex.
-    // pthread_attr_destroy(&thread_attribute);
-     pthread_mutex_destroy(&access_a_queue_mutex);
-     sem_destroy(&question_asked);
-     pthread_exit(NULL);
-     return 0;
+  printf("Argument validity check:\n%d %f %d %ld %f\n", num_commentators,prob_to_answer,num_questions,
+  max_speak_time,prob_to_breaking_news);
+  
+    //   // initialize mutex, attr and cond_var.
+    //   pthread_mutex_init(&access_a_queue_mutex, NULL);
+    //   sem_init(&question_asked,0,1);
+    //   //pthread_attr_init(&thread_attribute);
+    //
+    //  pthread_create(&moderator, &thread_attribute, moderate, NULL);
+    //  for(long i=0; i<num_commentators; i++)
+    //   pthread_create(&commentators[i], &thread_attribute, request, (void *)i);
+    //
+    //  // join created threads.
+    //  for(long i=0; i<num_commentators; i++)
+    //   pthread_join(commentators[i], NULL);
+    //  pthread_join(moderator, NULL);
+    //
+    //  // destroy attr and mutex.
+    // // pthread_attr_destroy(&thread_attribute);
+    //  pthread_mutex_destroy(&access_a_queue_mutex);
+    //  sem_destroy(&question_asked);
+    //  pthread_exit(NULL);
+    //  return 0;
 }

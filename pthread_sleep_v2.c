@@ -39,6 +39,11 @@ int pthread_sleep(double seconds){
     return res;
 }
 
+struct Queue{
+  int front,rear,size;
+
+}
+
 int commentator_thread_number = 1;
 int question_number = 5;
 float requesting_answer_probability = 0.75;
