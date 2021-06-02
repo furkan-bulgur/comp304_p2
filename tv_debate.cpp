@@ -10,9 +10,11 @@
 #include <stdbool.h>
 #include <fstream>
 #include <semaphore.h>
+#include <math.h>
 
 using namespace std;
 
+#define MAX_NUMBER_COMMENTATORS 25
 struct Request {
   int id;
   float speak_time;
@@ -29,16 +31,23 @@ int num_questions;
 time_t max_speak_time;
 int req_id = 0;
 time_t start_time;
+clock_t start;
 
+
+//barrier
+pthread_barrier_t question_barrier;
 //threads
-pthread_t commentators[5];  //change it to num_commentators
+pthread_t commentators[MAX_NUMBER_COMMENTATORS];
+pthread_cond_t comment_conds[MAX_NUMBER_COMMENTATORS];
 pthread_t moderator;
-sem_t question_asked;
-pthread_mutex_t access_a_queue_mutex;
+
+pthread_cond_t question_asked;
+pthread_mutex_t access_global_queue_mutex;
+pthread_mutex_t question_mutex;
+
 pthread_attr_t thread_attribute;
 
 
-int victim = 3;
 
 int pthread_sleep(double seconds){
     pthread_mutex_t mutex;
@@ -69,31 +78,55 @@ int pthread_sleep(double seconds){
     return res;
 }
 
+void print_time(){
+  clock_t end = clock();
+  double elapsed = (double)(end-start)*CLOCKS_PER_SEC;
+  printf("%lf\n",elapsed);
+  double milisec = (int)elapsed%1000;
+  double temp_second = floor(elapsed/1000.0);
+  double second = (int)temp_second%60;
+  double minute = floor(temp_second/60.0);
+  printf("[%.0lf:%.0lf:%.0lf] ",minute,second,milisec);
+}
+
 
 // Posts new request to the queue.
-void post_new_request_to_queue(int com_num) {
-    //pthread_cond_signal(&police_stopped_playing_with_his_cell_phone);
-    struct Request new_req;
-    new_req.id = req_id;
-    new_req.speak_time = 0.0;
-    new_req.commantator_num = com_num;
-    //queue<Commentator> *req_queue = &request_queue;
-    request_queue.push(new_req);
-    req_id = req_id + 1;
+int post_new_request_to_queue(int com_num, float speak_time) {
+  struct Request new_req;
+  new_req.id = req_id;
+  new_req.speak_time = speak_time;
+  new_req.commantator_num = com_num;
+  //queue<Commentator> *req_queue = &request_queue;
+  request_queue.push(new_req);
+  req_id = req_id + 1;
+  return new_req.id;
 }
 
 void *request(void *com_num) {
     int commentator_num = (long)com_num;
-
-    while(num_questions>0){
-      sem_wait(&question_asked);
-      pthread_mutex_lock(&access_a_queue_mutex);
-      //if it wants to answer, posts a request to the queue
+    // Random speak time between 1 and max_speak_time
+    float speak_time = (float)rand()/(float)(RAND_MAX/(max_speak_time - 1)) + 1;
+    int counter = num_questions;
+    while(counter>0){
+      //printf("Ben tıkandım question condda %d\n",commentator_num);
+      pthread_cond_wait(&question_asked,&access_global_queue_mutex);
       if((rand()/(float)RAND_MAX) < prob_to_answer) {
-        post_new_request_to_queue(commentator_num);
+        int position_in_queue = post_new_request_to_queue(commentator_num,speak_time);
+        //print_time();
+        printf("Commentator #%d generates answer, position in queue: %d\n",commentator_num,position_in_queue);
+        pthread_mutex_unlock(&access_global_queue_mutex);
+        pthread_barrier_wait(&question_barrier);
+        pthread_mutex_lock(&access_global_queue_mutex);
+        pthread_cond_wait(&comment_conds[commentator_num],&access_global_queue_mutex);
+        pthread_sleep(speak_time);
+        //print_time();
+        printf("Commentator #%d finishes speaking.\n",commentator_num);
+        pthread_mutex_unlock(&access_global_queue_mutex);
+      }else{
+        pthread_barrier_wait(&question_barrier);
+        pthread_mutex_unlock(&access_global_queue_mutex);
       }
-      printf("Exiting Commentator\n");
-      pthread_mutex_unlock(&access_a_queue_mutex);
+      counter--;
     }
 
     pthread_exit(0);
@@ -101,31 +134,37 @@ void *request(void *com_num) {
 
 void *moderate(void *vargp) {
 
-  for(int i=num_questions; i>0; i--){
-    pthread_mutex_lock(&access_a_queue_mutex);
-    sem_post(&question_asked);
-    printf("Exiting Moderator\n");
-    pthread_mutex_unlock(&access_a_queue_mutex);
-    pthread_sleep(3);
-
-    pthread_mutex_lock(&access_a_queue_mutex);
+  for(int i=0; i<num_questions; i++){
+    //print_time();
+    pthread_sleep(1);
+    printf("Moderator asks question %d\n", i+1);
+    pthread_cond_broadcast(&question_asked);
+    //printf("Ben tıkandım barierde\n");
+    pthread_barrier_wait(&question_barrier);
+    //printf("Ben tıkandım global mutexte\n");
+    pthread_mutex_lock(&access_global_queue_mutex);
     while(request_queue.size()!=0) {
       struct Request first_req = request_queue.front();
-      float t = first_req.speak_time;
+      int com_num = first_req.commantator_num;
+      float time = first_req.speak_time;
       request_queue.pop();
-      pthread_sleep(t);
+      //print_time();
+      printf("Comentator #%d's turn to speak for %.3f seconds\n",com_num,time);
+      pthread_mutex_unlock(&access_global_queue_mutex);
+      pthread_cond_signal(&comment_conds[com_num]);
+      pthread_mutex_lock(&access_global_queue_mutex);
     }
     req_id = 0;
-    pthread_mutex_unlock(&access_a_queue_mutex);
+    pthread_mutex_unlock(&access_global_queue_mutex);
   }
 
   pthread_exit(0);
 }
 
 bool initialize_values(int argc, char *argv[]){
-  printf("argc : %d \n",argc);
+
   num_commentators = 4;
-  prob_to_answer = 0.75;
+  prob_to_answer = 1;
   num_questions = 5;
   max_speak_time = 3;
   prob_to_breaking_news = 0.05;
@@ -155,33 +194,57 @@ bool initialize_values(int argc, char *argv[]){
   return true;
 }
 
+bool initialize_threads(){
+
+
+  // initialize mutex, attr and cond_var.
+  pthread_barrier_init(&question_barrier,NULL,num_commentators+1);
+
+  pthread_mutex_init(&access_global_queue_mutex, NULL);
+  pthread_mutex_init(&question_mutex, NULL);
+  pthread_cond_init(&question_asked,NULL);
+
+
+
+
+  for(long i=0; i<num_commentators; i++){
+    if(pthread_cond_init(&comment_conds[i], NULL) != 0)
+      return false;
+    if(pthread_create(&commentators[i], &thread_attribute, request, (void *)i) != 0)
+      return false;
+  }
+
+  if(pthread_create(&moderator, &thread_attribute, moderate, NULL) != 0)
+    return false;
+
+  return true;
+
+}
+
 
 int main(int argc, char *argv[]) {
+  start = clock();
   if(!initialize_values(argc,argv)){
     printf("Argument Error. Exiting.\n");
   }
+  if(!initialize_threads()){
+    printf("Thread Error. Exiting.\n");
+  }
 
-  printf("Argument validity check:\n%d %f %d %ld %f\n", num_commentators,prob_to_answer,num_questions,
-  max_speak_time,prob_to_breaking_news);
-  
-    //   // initialize mutex, attr and cond_var.
-    //   pthread_mutex_init(&access_a_queue_mutex, NULL);
-    //   sem_init(&question_asked,0,1);
-    //   //pthread_attr_init(&thread_attribute);
-    //
-    //  pthread_create(&moderator, &thread_attribute, moderate, NULL);
-    //  for(long i=0; i<num_commentators; i++)
-    //   pthread_create(&commentators[i], &thread_attribute, request, (void *)i);
-    //
-    //  // join created threads.
-    //  for(long i=0; i<num_commentators; i++)
-    //   pthread_join(commentators[i], NULL);
-    //  pthread_join(moderator, NULL);
-    //
-    //  // destroy attr and mutex.
-    // // pthread_attr_destroy(&thread_attribute);
-    //  pthread_mutex_destroy(&access_a_queue_mutex);
-    //  sem_destroy(&question_asked);
-    //  pthread_exit(NULL);
-    //  return 0;
+  // join created threads.
+  for(long i=0; i<num_commentators; i++){
+    pthread_join(commentators[i], NULL);
+    pthread_cond_destroy(&comment_conds[i]);
+  }
+
+  pthread_join(moderator, NULL);
+
+  // destroy attr and mutex.
+  // pthread_attr_destroy(&thread_attribute);
+  pthread_barrier_destroy(&question_barrier);
+  pthread_mutex_destroy(&access_global_queue_mutex);
+  pthread_mutex_destroy(&question_mutex);
+  pthread_cond_destroy(&question_asked);
+  pthread_exit(NULL);
+  return 0;
 }
