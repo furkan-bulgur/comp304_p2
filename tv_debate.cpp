@@ -30,7 +30,6 @@ int num_commentators;
 int num_questions;
 time_t max_speak_time;
 int req_id = 0;
-time_t start_time;
 clock_t start;
 
 //gettimeofday
@@ -127,7 +126,6 @@ void *request(void *com_num) {
       pthread_cond_wait(&ask_question,&access_global_queue_mutex);
       if((rand()/(float)RAND_MAX) < prob_to_answer) {
         int position_in_queue = post_new_request_to_queue(commentator_num,speak_time);
-        //print_time();
         print_time();
         printf("Commentator #%d generates answer, position in queue: %d\n",commentator_num,position_in_queue);
         pthread_mutex_unlock(&access_global_queue_mutex);
