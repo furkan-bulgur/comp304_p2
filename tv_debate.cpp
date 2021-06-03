@@ -86,9 +86,8 @@ int pthread_sleep(double seconds){
 void print_time(){
   timeval t;
   gettimeofday(&t, NULL);
-  long sec = ((t.tv_sec * 1000000 + t.tv_usec) -
-  (st.tv_sec * 1000000 + st.tv_usec))/10000000;
-
+  long sec = t.tv_sec - st.tv_sec;
+  // long milisec = t.tv_usec - st.tv_usec;
   long milisec = ((t.tv_sec * 1000000 + t.tv_usec) -
   (st.tv_sec * 1000000 + st.tv_usec))/10000;
   printf("[%ld: %ld] ",sec, milisec);
@@ -150,8 +149,8 @@ void *request(void *com_num) {
 void *moderate(void *vargp) {
 
   for(int i=0; i<num_questions; i++){
-    //print_time();
     pthread_sleep(1);
+    print_time();
     printf("Moderator asks question %d\n", i+1);
     pthread_cond_broadcast(&ask_question);
     //printf("Ben tıkandım barierde\n");
@@ -163,8 +162,8 @@ void *moderate(void *vargp) {
       int com_num = first_req.commantator_num;
       float time = first_req.speak_time;
       request_queue.pop();
-      //print_time();
       pthread_mutex_unlock(&access_global_queue_mutex);
+      print_time();
       printf("Comentator #%d's turn to speak for %.3f seconds\n",com_num,time);
       pthread_cond_signal(&comment_conds[com_num]);
       pthread_cond_wait(&finish_talk,&talk_mutex);
@@ -237,7 +236,6 @@ bool initialize_threads(){
 int main(int argc, char *argv[]) {
   start = clock();
   gettimeofday(&st, NULL);
-  print_time();
   if(!initialize_values(argc,argv)){
     printf("Argument Error. Exiting.\n");
   }
