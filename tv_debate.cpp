@@ -35,14 +35,16 @@ clock_t start;
 
 
 //barrier
-pthread_barrier_t question_barrier;
+pthread_barrier_t ask_to_answer_barrier;
 //threads
 pthread_t commentators[MAX_NUMBER_COMMENTATORS];
 pthread_cond_t comment_conds[MAX_NUMBER_COMMENTATORS];
 pthread_t moderator;
 
-pthread_cond_t question_asked;
+pthread_cond_t ask_question;
+pthread_cond_t finish_talk;
 pthread_mutex_t access_global_queue_mutex;
+pthread_mutex_t talk_mutex;
 pthread_mutex_t question_mutex;
 
 pthread_attr_t thread_attribute;
@@ -109,22 +111,23 @@ void *request(void *com_num) {
     int counter = num_questions;
     while(counter>0){
       //printf("Ben tıkandım question condda %d\n",commentator_num);
-      pthread_cond_wait(&question_asked,&access_global_queue_mutex);
+      pthread_cond_wait(&ask_question,&access_global_queue_mutex);
       if((rand()/(float)RAND_MAX) < prob_to_answer) {
         int position_in_queue = post_new_request_to_queue(commentator_num,speak_time);
         //print_time();
         printf("Commentator #%d generates answer, position in queue: %d\n",commentator_num,position_in_queue);
         pthread_mutex_unlock(&access_global_queue_mutex);
-        pthread_barrier_wait(&question_barrier);
-        pthread_mutex_lock(&access_global_queue_mutex);
-        pthread_cond_wait(&comment_conds[commentator_num],&access_global_queue_mutex);
+        pthread_barrier_wait(&ask_to_answer_barrier);
+        //printf("Commentator #%d waits to talk.\n",commentator_num);
+        pthread_cond_wait(&comment_conds[commentator_num],&talk_mutex);
         pthread_sleep(speak_time);
         //print_time();
         printf("Commentator #%d finishes speaking.\n",commentator_num);
-        pthread_mutex_unlock(&access_global_queue_mutex);
+        pthread_mutex_unlock(&talk_mutex);
+        pthread_cond_signal(&finish_talk);
       }else{
-        pthread_barrier_wait(&question_barrier);
         pthread_mutex_unlock(&access_global_queue_mutex);
+        pthread_barrier_wait(&ask_to_answer_barrier);
       }
       counter--;
     }
@@ -138,9 +141,9 @@ void *moderate(void *vargp) {
     //print_time();
     pthread_sleep(1);
     printf("Moderator asks question %d\n", i+1);
-    pthread_cond_broadcast(&question_asked);
+    pthread_cond_broadcast(&ask_question);
     //printf("Ben tıkandım barierde\n");
-    pthread_barrier_wait(&question_barrier);
+    pthread_barrier_wait(&ask_to_answer_barrier);
     //printf("Ben tıkandım global mutexte\n");
     pthread_mutex_lock(&access_global_queue_mutex);
     while(request_queue.size()!=0) {
@@ -149,13 +152,13 @@ void *moderate(void *vargp) {
       float time = first_req.speak_time;
       request_queue.pop();
       //print_time();
-      printf("Comentator #%d's turn to speak for %.3f seconds\n",com_num,time);
       pthread_mutex_unlock(&access_global_queue_mutex);
+      printf("Comentator #%d's turn to speak for %.3f seconds\n",com_num,time);
       pthread_cond_signal(&comment_conds[com_num]);
-      pthread_mutex_lock(&access_global_queue_mutex);
+      pthread_cond_wait(&finish_talk,&talk_mutex);
     }
     req_id = 0;
-    pthread_mutex_unlock(&access_global_queue_mutex);
+    pthread_mutex_unlock(&talk_mutex);
   }
 
   pthread_exit(0);
@@ -164,7 +167,7 @@ void *moderate(void *vargp) {
 bool initialize_values(int argc, char *argv[]){
 
   num_commentators = 4;
-  prob_to_answer = 1;
+  prob_to_answer = 0.75;
   num_questions = 5;
   max_speak_time = 3;
   prob_to_breaking_news = 0.05;
@@ -198,11 +201,12 @@ bool initialize_threads(){
 
 
   // initialize mutex, attr and cond_var.
-  pthread_barrier_init(&question_barrier,NULL,num_commentators+1);
-
+  pthread_barrier_init(&ask_to_answer_barrier,NULL,num_commentators+1);
+  pthread_mutex_init(&talk_mutex, NULL);
   pthread_mutex_init(&access_global_queue_mutex, NULL);
   pthread_mutex_init(&question_mutex, NULL);
-  pthread_cond_init(&question_asked,NULL);
+  pthread_cond_init(&ask_question,NULL);
+  pthread_cond_init(&finish_talk,NULL);
 
 
 
@@ -241,10 +245,12 @@ int main(int argc, char *argv[]) {
 
   // destroy attr and mutex.
   // pthread_attr_destroy(&thread_attribute);
-  pthread_barrier_destroy(&question_barrier);
+  pthread_barrier_destroy(&ask_to_answer_barrier);
   pthread_mutex_destroy(&access_global_queue_mutex);
+  pthread_mutex_destroy(&talk_mutex);
   pthread_mutex_destroy(&question_mutex);
-  pthread_cond_destroy(&question_asked);
+  pthread_cond_destroy(&ask_question);
+  pthread_cond_destroy(&finish_talk);
   pthread_exit(NULL);
   return 0;
 }
