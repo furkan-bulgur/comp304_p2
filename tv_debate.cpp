@@ -32,6 +32,8 @@ time_t max_speak_time;
 int req_id = 0;
 time_t start_time;
 clock_t start;
+bool moderator_talks = false;
+bool commentator_talks[] = {false};
 
 
 //barrier
@@ -111,6 +113,7 @@ void *request(void *com_num) {
     int counter = num_questions;
     while(counter>0){
       //printf("Ben tıkandım question condda %d\n",commentator_num);
+      pthread_mutex_lock(&access_global_queue_mutex);
       pthread_cond_wait(&ask_question,&access_global_queue_mutex);
       if((rand()/(float)RAND_MAX) < prob_to_answer) {
         int position_in_queue = post_new_request_to_queue(commentator_num,speak_time);
@@ -119,12 +122,18 @@ void *request(void *com_num) {
         pthread_mutex_unlock(&access_global_queue_mutex);
         pthread_barrier_wait(&ask_to_answer_barrier);
         //printf("Commentator #%d waits to talk.\n",commentator_num);
+        commentator_talks[commentator_num] = false;
+        pthread_mutex_lock(&talk_mutex);
         pthread_cond_wait(&comment_conds[commentator_num],&talk_mutex);
+        commentator_talks[commentator_num] = true;
         pthread_sleep(speak_time);
         //print_time();
         printf("Commentator #%d finishes speaking.\n",commentator_num);
+        commentator_talks[commentator_num] = false;
         pthread_mutex_unlock(&talk_mutex);
-        pthread_cond_signal(&finish_talk);
+        while(!moderator_talks){
+          pthread_cond_signal(&finish_talk);
+        }
       }else{
         pthread_mutex_unlock(&access_global_queue_mutex);
         pthread_barrier_wait(&ask_to_answer_barrier);
@@ -153,12 +162,19 @@ void *moderate(void *vargp) {
       request_queue.pop();
       //print_time();
       pthread_mutex_unlock(&access_global_queue_mutex);
+      //pthread_sleep(1);
       printf("Comentator #%d's turn to speak for %.3f seconds\n",com_num,time);
-      pthread_cond_signal(&comment_conds[com_num]);
+      while(!commentator_talks[com_num]){
+        pthread_cond_signal(&comment_conds[com_num]);
+      }
+      moderator_talks = false;
+      pthread_mutex_lock(&talk_mutex);
       pthread_cond_wait(&finish_talk,&talk_mutex);
+      moderator_talks = true;
+      pthread_mutex_unlock(&talk_mutex);
     }
     req_id = 0;
-    pthread_mutex_unlock(&talk_mutex);
+
   }
 
   pthread_exit(0);
