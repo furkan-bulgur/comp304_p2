@@ -82,13 +82,26 @@ int pthread_sleep(double seconds){
 }
 
 void print_time(){
-  timeval t;
-  gettimeofday(&t, NULL);
-  long sec = t.tv_sec - st.tv_sec;
-  // long milisec = t.tv_usec - st.tv_usec;
-  long milisec = ((t.tv_sec * 1000000 + t.tv_usec) -
-  (st.tv_sec * 1000000 + st.tv_usec))/10000;
-  printf("[%ld: %ld] ",sec, milisec);
+  // timeval t;
+  // gettimeofday(&t, NULL);
+  // long sec = t.tv_sec - st.tv_sec;
+  // long milisec =
+  // //(t.tv_sec - st.tv_sec) * 1000.0f + (t.tv_usec - st.tv_usec) / 1000.0f;
+  // ((t.tv_sec * 1000000 + t.tv_usec) - (st.tv_sec * 1000000 + st.tv_usec))/10000;
+  //
+  // printf("[%ld: %ld] ",sec, milisec);
+
+    timeval curTime;
+    gettimeofday(&curTime, NULL);
+    int milisec = curTime.tv_usec / 1000;
+
+    char buffer [50];
+    strftime(buffer, 50, "%H:%M:%S", localtime(&curTime.tv_sec));
+
+    char currentTime[84] = "";
+    sprintf(currentTime, "%s:%03d", buffer, milisec);
+    printf("[%s] ", currentTime);
+
   // clock_t end = clock();
   // double elapsed = (double)(end-start)*CLOCKS_PER_SEC;
   // printf("%lf\n",elapsed);
@@ -240,6 +253,7 @@ bool initialize_threads(){
 
 int main(int argc, char *argv[]) {
   start = clock();
+  gettimeofday(&st, NULL);
   if(!initialize_values(argc,argv)){
     printf("Argument Error. Exiting.\n");
   }
