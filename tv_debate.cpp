@@ -31,11 +31,11 @@ int num_questions;
 time_t max_speak_time;
 int req_id = 0;
 clock_t start;
+struct timeval st; //for gettimeofday
 
-//gettimeofday
-struct timeval st;
+bool moderator_talks = false;
+bool commentator_talks[] = {false};
 
-// printf("%ld/n", start.tv_sec * 1000000);
 
 //barrier
 pthread_barrier_t ask_to_answer_barrier;
@@ -51,8 +51,6 @@ pthread_mutex_t talk_mutex;
 pthread_mutex_t question_mutex;
 
 pthread_attr_t thread_attribute;
-
-
 
 int pthread_sleep(double seconds){
     pthread_mutex_t mutex;
@@ -91,7 +89,6 @@ void print_time(){
   long milisec = ((t.tv_sec * 1000000 + t.tv_usec) -
   (st.tv_sec * 1000000 + st.tv_usec))/10000;
   printf("[%ld: %ld] ",sec, milisec);
-
   // clock_t end = clock();
   // double elapsed = (double)(end-start)*CLOCKS_PER_SEC;
   // printf("%lf\n",elapsed);
@@ -121,7 +118,7 @@ void *request(void *com_num) {
     float speak_time = (float)rand()/(float)(RAND_MAX/(max_speak_time - 1)) + 1;
     int counter = num_questions;
     while(counter>0){
-      //printf("Ben tıkandım question condda %d\n",commentator_num);
+      pthread_mutex_lock(&access_global_queue_mutex);
       pthread_cond_wait(&ask_question,&access_global_queue_mutex);
       if((rand()/(float)RAND_MAX) < prob_to_answer) {
         int position_in_queue = post_new_request_to_queue(commentator_num,speak_time);
@@ -129,13 +126,18 @@ void *request(void *com_num) {
         printf("Commentator #%d generates answer, position in queue: %d\n",commentator_num,position_in_queue);
         pthread_mutex_unlock(&access_global_queue_mutex);
         pthread_barrier_wait(&ask_to_answer_barrier);
-        //printf("Commentator #%d waits to talk.\n",commentator_num);
+        commentator_talks[commentator_num] = false;
+        pthread_mutex_lock(&talk_mutex);
         pthread_cond_wait(&comment_conds[commentator_num],&talk_mutex);
+        commentator_talks[commentator_num] = true;
         pthread_sleep(speak_time);
         print_time();
         printf("Commentator #%d finishes speaking.\n",commentator_num);
+        commentator_talks[commentator_num] = false;
         pthread_mutex_unlock(&talk_mutex);
-        pthread_cond_signal(&finish_talk);
+        while(!moderator_talks){
+          pthread_cond_signal(&finish_talk);
+        }
       }else{
         pthread_mutex_unlock(&access_global_queue_mutex);
         pthread_barrier_wait(&ask_to_answer_barrier);
@@ -149,27 +151,31 @@ void *request(void *com_num) {
 void *moderate(void *vargp) {
 
   for(int i=0; i<num_questions; i++){
-    pthread_sleep(1);
     print_time();
+    pthread_sleep(1);
     printf("Moderator asks question %d\n", i+1);
     pthread_cond_broadcast(&ask_question);
-    //printf("Ben tıkandım barierde\n");
     pthread_barrier_wait(&ask_to_answer_barrier);
-    //printf("Ben tıkandım global mutexte\n");
     pthread_mutex_lock(&access_global_queue_mutex);
     while(request_queue.size()!=0) {
       struct Request first_req = request_queue.front();
       int com_num = first_req.commantator_num;
       float time = first_req.speak_time;
       request_queue.pop();
-      pthread_mutex_unlock(&access_global_queue_mutex);
       print_time();
+      pthread_mutex_unlock(&access_global_queue_mutex);
       printf("Comentator #%d's turn to speak for %.3f seconds\n",com_num,time);
-      pthread_cond_signal(&comment_conds[com_num]);
+      while(!commentator_talks[com_num]){
+        pthread_cond_signal(&comment_conds[com_num]);
+      }
+      moderator_talks = false;
+      pthread_mutex_lock(&talk_mutex);
       pthread_cond_wait(&finish_talk,&talk_mutex);
+      moderator_talks = true;
+      pthread_mutex_unlock(&talk_mutex);
     }
     req_id = 0;
-    pthread_mutex_unlock(&talk_mutex);
+
   }
 
   pthread_exit(0);
@@ -209,7 +215,6 @@ bool initialize_values(int argc, char *argv[]){
 }
 
 bool initialize_threads(){
-
   // initialize mutex, attr and cond_var.
   pthread_barrier_init(&ask_to_answer_barrier,NULL,num_commentators+1);
   pthread_mutex_init(&talk_mutex, NULL);
@@ -235,7 +240,6 @@ bool initialize_threads(){
 
 int main(int argc, char *argv[]) {
   start = clock();
-  gettimeofday(&st, NULL);
   if(!initialize_values(argc,argv)){
     printf("Argument Error. Exiting.\n");
   }
